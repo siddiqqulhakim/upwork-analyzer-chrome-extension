@@ -79,20 +79,57 @@ try {
   process.exit(1);
 }
 
+// ─── Extract skills and rate from profile markdown ─────────────────────────────
+/**
+ * Parse a profile markdown file and extract:
+ * - A flat list of skill keywords (lowercased)
+ * - Target hourly rate range (floor and ceiling)
+ */
+function extractProfileFacts(profileContent) {
+  if (!profileContent) return null;
+
+  // Extract hourly rate from "Target Hourly Rate: $X - $Y"
+  const rateMatch = profileContent.match(/\$?(\d+)\s*[-–]\s*\$?(\d+)/i);
+  const userRateFloor = rateMatch ? parseInt(rateMatch[1]) : null;
+  const userRateCeiling = rateMatch ? parseInt(rateMatch[2]) : null;
+
+  // Collect all skill keywords from the profile text
+  const skillKeywords = [
+    // Data engineering
+    'python', 'pyspark', 'pandas', 'sql', 'postgresql', 'mysql', 'ms sql server',
+    'bigquery', 'airflow', 'dbt', 'airbyte', 'talend', 'ssis', 'azure data factory',
+    'spark', 'hadoop', 'datahub', 'data governance', 'elt', 'etl', 'data warehouse',
+    // Cloud / DevOps
+    'gcp', 'google cloud', 'alibaba cloud', 'kubernetes', 'helm', 'argo cd',
+    'github actions', 'grafana', 'docker', 'ci/cd',
+    // BI / dashboards
+    'apache superset', 'superset', 'power bi', 'looker studio', 'data studio',
+    'streamlit', 'tableau', 'dashboard', 'data visualization',
+    // Web
+    'php', 'laravel', 'codeigniter', 'javascript', 'selenium', 'web scraping',
+    'rest api', 'graphql', 'hasura', 'api',
+    // Other
+    'excel', 'google sheets', 'automation', 'scraping',
+  ];
+
+  const lower = profileContent.toLowerCase();
+  const found = skillKeywords.filter(s => lower.includes(s));
+  return { userRateFloor, userRateCeiling, skills: found };
+}
+
 // ─── Deterministic job scoring ──────────────────────────────────────────────
 /**
  * Compute a deterministic match score, verdict, and red flags from raw job data.
- * This runs BEFORE the LLM, so repeated analyses of the same job produce consistent results.
- * The LLM uses these pre-computed values as grounding context.
+ * profileContent is optional — when provided, skill matching and rate alignment
+ * are tailored to the actual freelancer profile.
  */
-function computeScore(job) {
+function computeScore(job, profileContent) {
   const score = { value: 5, flags: [], reasons: [] };
 
   const client = job.client || {};
   const hourlyRate = job.hourly_rate || {};
   const rateLow = hourlyRate.low || 0;
   const rateHigh = hourlyRate.high || 0;
-  const avgRate = (rateLow + rateHigh) / 2;
   const totalSpent = client.totalSpent || 0;
   const hires = parseInt(client.hires) || 0;
   const jobsPosted = client.jobsPosted || 0;
@@ -103,6 +140,12 @@ function computeScore(job) {
   const proposalsCount = proposals && !/\+/.test(proposals) ? parseInt(proposals, 10) || 0 : null;
   const paymentVerified = client.paymentVerified;
   const rating = client.rating || 0;
+
+  // ── Extract profile facts (skill list and rate range) ──
+  const profile = extractProfileFacts(profileContent);
+  const userRateFloor = profile?.userRateFloor ?? 15;
+  const userRateCeiling = profile?.userRateCeiling ?? 30;
+  const profileSkills = profile?.skills ?? [];
 
   // ── INSTANT SKIPS (return early) ──
   if (!paymentVerified && totalSpent === 0) {
@@ -140,29 +183,31 @@ function computeScore(job) {
   if (rating >= 4.8) { score.value += 0.5; }
   if (job.skills && job.skills.length >= 4) { score.value += 0.5; }
 
-  // ── SKILL MATCH (profile-agnostic baseline from job requirements) ──
+  // ── SKILL MATCH (tailored to profile) ──
   const requiredSkills = (job.skills || []).map(s => s.toLowerCase());
   const jobTitle = (job.title || '').toLowerCase();
   const summary = (job.summary || '').toLowerCase();
 
-  const strongMatch = ['python', 'django', 'sql', 'postgresql', 'data analysis', 'data visualization'].filter(
-    s => requiredSkills.includes(s) || jobTitle.includes(s) || summary.includes(s)
-  ).length;
+  // Count how many of the job's required skills appear in the profile
+  const matchedProfileSkills = requiredSkills.filter(
+    s => profileSkills.some(ps => ps.includes(s) || s.includes(ps))
+  );
 
-  const partialMatch = ['laravel', 'php', 'superset', 'streamlit', 'power bi', 'airflow', 'bigquery'].filter(
-    s => jobTitle.includes(s) || summary.includes(s)
-  ).length;
+  // Also check if job title/summary mentions profile skills
+  const titleSummaryMatches = profileSkills.filter(
+    ps => jobTitle.includes(ps) || summary.includes(ps)
+  );
 
-  if (strongMatch >= 4) { score.value += 1.5; }
-  else if (strongMatch >= 2) { score.value += 0.5; }
-  else if (partialMatch >= 2) { /* no change — partial overlap */ }
+  const totalMatches = matchedProfileSkills.length + titleSummaryMatches.length;
+
+  if (totalMatches >= 4) { score.value += 1.5; }
+  else if (totalMatches >= 2) { score.value += 0.5; }
+  else if (totalMatches === 1) { /* no change */ }
   else { score.value -= 1; } // weak/no skill match
 
   // ── RATE ALIGNMENT ──
-  const userRateFloor = 15; // from ilham.md profile
-  const userRateCeiling = 30;
   if (rateLow <= userRateCeiling && rateHigh >= userRateFloor) {
-    score.value += 1; // rate range overlaps with user's range
+    score.value += 1;
   }
 
   // ── DETERMINISTIC VERDICT ──
@@ -187,12 +232,16 @@ function computeScore(job) {
     ? 'Do not apply. The risk signals outweigh potential gains.'
     : verdict === 'APPLY'
     ? 'Strong match — apply confidently. Rate alignment and skill overlap are solid.'
-    : 'Apply with care. Anchor your rate at the budget floor (' + (rateLow > 0 ? '$' + rateLow : '$25') + '/hr) and emphasize relevant portfolio work.';
+    : 'Apply with care. Anchor your rate at the budget floor (' + (rateLow > 0 ? '$' + rateLow : '$' + userRateFloor) + '/hr) and emphasize relevant portfolio work.';
 
-  // ── PROPOSAL HOOK ──
-  const proposalHook = strongMatch >= 3
-    ? 'Lead with your data engineering + SQL + visualization stack. Mention specific tools (Superset, Streamlit, PostgreSQL) used in production.'
-    : 'Emphasize Python + SQL + data pipeline experience. Close any Django/explicit-framework gap in your proposal.';
+  // ── PROPOSAL HOOK (dynamic from matched skills) ──
+  const allMatched = [...new Set([...matchedProfileSkills, ...titleSummaryMatches])];
+  const topMatches = allMatched.slice(0, 5);
+  const proposalHook = topMatches.length >= 2
+    ? 'Lead with your ' + topMatches.join(' + ') + ' experience. Mention specific tools, years of hands-on use, and a concrete result from past work.'
+    : topMatches.length === 1
+    ? 'Lead with your ' + topMatches[0] + ' experience. Tie it directly to what the client is asking for.'
+    : 'Emphasize your strongest relevant skill from your profile and show a matched sample or portfolio link.';
 
   return {
     value: finalScore,
@@ -206,6 +255,79 @@ function computeScore(job) {
                       finalScore >= 4 ? 'Caution — the risk signals are real but not disqualifying. Spend Connects selectively.' :
                       'Not worth it — too many red flags for the Connects cost.',
   };
+}
+
+// ─── Format job data as structured markdown for LLM input ─────────────────────
+/**
+ * Converts raw job data into a clean, labeled markdown block.
+ * Only includes fields relevant to job qualification and proposal writing.
+ * This cuts token noise significantly vs raw JSON while preserving all signal.
+ */
+function formatJobAsMarkdown(job) {
+  const c = job.client || {};
+  const hr = job.hourly_rate || {};
+  const rate = job.hourlyRate || {};
+  const act = job.activity || {};
+
+  const lines = [];
+
+  lines.push('## Job Title');
+  lines.push(job.title || '(no title)');
+
+  lines.push('');
+  lines.push('## Original Post');
+  lines.push(job.summary || '(no description)');
+
+  lines.push('');
+  lines.push('## Client');
+  lines.push('Name: ' + (c.name || c.clientName || 'Unknown'));
+  lines.push('Location: ' + (job.location || 'Not specified'));
+  lines.push('Payment Verified: ' + (c.paymentVerified ? 'Yes' : 'No'));
+  lines.push('Total Spent: ' + (c.totalSpent || c.total_spent ? '$' + (c.totalSpent || c.total_spent).toLocaleString() : 'None recorded'));
+  lines.push('Jobs Posted: ' + (c.jobsPosted || c.jobs_posted || 0));
+  lines.push('Hires: ' + (parseInt(c.hires) || 0));
+  lines.push('Member Since: ' + (c.memberSince || c.member_since || 'Unknown'));
+  lines.push('Rating: ' + (c.rating ? c.rating + '★' : 'No rating'));
+  lines.push('Avg Hourly Rate Paid: ' + (c.avgHourlyRate || c.avg_hourly_rate ? '$' + (c.avgHourlyRate || c.avg_hourly_rate) + '/hr' : 'Not available'));
+
+  lines.push('');
+  lines.push('## Budget');
+  lines.push('Type: ' + (job.projectType || job.budgetType || 'Not specified'));
+  lines.push('Hourly Range: ' + (hr.low || rate.low ? '$' + (hr.low || rate.low) + ' – $' + (hr.high || rate.high) + '/hr' : 'Not specified'));
+  lines.push('Fixed Budget: ' + (job.fixedPrice || job.budget ? '$' + (job.fixedPrice || job.budget).toLocaleString() : 'Not specified'));
+  lines.push('Est. Hours/Week: ' + (job.hoursPerWeek || 'Not specified'));
+  lines.push('Duration: ' + (job.duration || 'Not specified'));
+
+  lines.push('');
+  lines.push('## Required Skills');
+  if (job.skills && job.skills.length > 0) {
+    lines.push(job.skills.join(', '));
+  } else {
+    lines.push('None specified');
+  }
+
+  lines.push('');
+  lines.push('## Experience Level');
+  lines.push(job.experience_level || job.experienceLevel || 'Not specified');
+
+  lines.push('');
+  lines.push('## Job Activity');
+  lines.push('Posted: ' + (job.posted || 'Unknown'));
+  lines.push('Proposals: ' + (act.proposals || act.Proposals || 'Unknown'));
+  lines.push('Connects Cost: ' + (job.proposalConnects ? job.proposalConnects + ' Connects' : 'Not specified'));
+
+  if (job.recentJobs && job.recentJobs.length > 0) {
+    lines.push('');
+    lines.push('## Client Recent Jobs');
+    for (const rj of job.recentJobs.slice(0, 5)) {
+      const title = rj.title || rj.jobTitle || 'Untitled';
+      const spent = rj.totalSpent || rj.spent || '';
+      const status = rj.status || '';
+      lines.push('- ' + title + (spent ? ' ($' + spent + ')' : '') + (status ? ' [' + status + ']' : ''));
+    }
+  }
+
+  return lines.join('\n');
 }
 
 // ─── Build the analysis prompt ───────────────────────────────────────────────
@@ -223,7 +345,7 @@ function buildQualifierPrompt(job, profileContent, precomputed) {
     : '';
   return scoringSection + qualifierTemplate
     .replace('{{PROFILE}}', profileContent || '(profile not found)')
-    .replace('{{JOB}}', JSON.stringify(job, null, 2));
+    .replace('{{JOB}}', formatJobAsMarkdown(job));
 }
 
 function buildChecklistPrompt(job, profileContent, precomputed) {
@@ -240,7 +362,7 @@ function buildChecklistPrompt(job, profileContent, precomputed) {
     : '';
   return scoringSection + checklistTemplate
     .replace('{{PROFILE}}', profileContent || '(profile not found)')
-    .replace('{{JOB}}', JSON.stringify(job, null, 2));
+    .replace('{{JOB}}', formatJobAsMarkdown(job));
 }
 
 // ─── Call Claude via SDK ───────────────────────────────────────────────────────
@@ -495,7 +617,7 @@ const server = http.createServer(async (req, res) => {
         const userName = m ? m[1].trim() : 'there';
 
         console.log('[' + new Date().toISOString() + '] Analyzing: "' + job.title + '" (profile: ' + (profileFile || 'default') + ')');
-        const precomputed = computeScore(job);
+        const precomputed = computeScore(job, profileContent);
         const prompt = buildQualifierPrompt(job, profileContent, precomputed);
         const response = await callClaude(prompt);
         const analysis = parseAnalysis(response);
@@ -582,7 +704,7 @@ const server = http.createServer(async (req, res) => {
         const userName = m ? m[1].trim() : 'there';
 
         console.log('[' + new Date().toISOString() + '] Checklist (qualify + propose): "' + job.title + '"');
-        const precomputed = computeScore(job);
+        const precomputed = computeScore(job, profileContent);
         const prompt = buildChecklistPrompt(job, profileContent, precomputed);
         const response = await callClaude(prompt, 2000);
         const analysis = parseChecklistResponse(response);
