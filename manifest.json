@@ -8,8 +8,7 @@
     "scripting"
   ],
   "host_permissions": [
-    "https://www.upwork.com/*",
-    "http://localhost:3000/*"
+    "https://www.upwork.com/*"
   ],
   "action": {
     "default_popup": "src/popup/popup.html",

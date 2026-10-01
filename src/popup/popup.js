@@ -1,422 +1,543 @@
-const ANALYZE_URL = 'http://localhost:3000/analyze';
-const CHECKLIST_URL = 'http://localhost:3000/checklist';
-const PROPOSAL_URL = 'http://localhost:3000/proposal';
-const PROFILES_URL = 'http://localhost:3000/profiles';
-const STORAGE_KEY = 'selectedProfile';
+(function () {
+  // ── Configuration ─────────────────────────────────────────────────────────
+  const API_BASE     = 'http://localhost:3000'; // Update after Vercel deploy
+  const ANALYZE_URL  = API_BASE + '/api/analyze';
+  const CHECKLIST_URL = API_BASE + '/api/checklist';
 
-const statusEl     = document.getElementById('status');
-const jsonViewEl   = document.getElementById('json-view');
-const extractBtn   = document.getElementById('extract-btn');
-const copyBtn      = document.getElementById('copy-btn');
-const analyzeBtn   = document.getElementById('analyze-btn');
-const resultPathEl = document.getElementById('result-path');
-const profileSelectEl = document.getElementById('profile-select');
+  // Storage keys
+  const PROFILE_KEY  = 'upworkAnalyzerProfile';
+  const HISTORY_KEY  = 'upworkAnalyzerHistory';
+  const MAX_HISTORY  = 100;
 
-const proposalToggleEl = document.getElementById('proposal-toggle');
-const proposalCheckbox = document.getElementById('proposal-checkbox');
-const proposalSectionEl = document.getElementById('proposal-section');
-const proposalBodyEl = document.getElementById('proposal-body');
-const proposalCopyBtn = document.getElementById('proposal-copy-btn');
-const proposalChevronEl = document.getElementById('proposal-chevron');
+  // ── State ──────────────────────────────────────────────────────────────────
+  let lastJobData       = null;
+  let lastAnalysisData  = null;
+  let lastProposalText  = null;
+  let proposalCollapsed = false;
+  let userProfile       = '';
+  let currentView       = 'main'; // 'main' | 'history'
 
-// Hide icon if it fails to load
-const headerIcon = document.getElementById('header-icon');
-if (headerIcon) {
-  headerIcon.addEventListener('error', () => {
-    headerIcon.style.display = 'none';
-  });
-}
+  // ── DOM Elements ───────────────────────────────────────────────────────────
+  const $ = (id) => document.getElementById(id);
+  const statusEl          = $('status');
+  const jsonViewEl        = $('json-view');
+  const extractBtn        = $('extract-btn');
+  const copyBtn           = $('copy-btn');
+  const analyzeBtn        = $('analyze-btn');
+  const proposalToggleEl  = $('proposal-toggle');
+  const proposalCheckbox  = $('proposal-checkbox');
+  const proposalSectionEl = $('proposal-section');
+  const proposalBodyEl    = $('proposal-body');
+  const proposalCopyBtn   = $('proposal-copy-btn');
+  const proposalChevronEl = $('proposal-chevron');
+  const profileToggleBtn  = $('profile-toggle-btn');
+  const profilePanelEl    = $('profile-panel');
+  const profileTextarea   = $('profile-textarea');
+  const profileSaveBtn    = $('profile-save-btn');
+  const profileSavedEl    = $('profile-saved-msg');
+  const historyToggleBtn  = $('history-toggle-btn');
+  const historyPanelEl    = $('history-panel');
+  const historyListEl      = $('history-list');
+  const historyClearBtn    = $('history-clear-btn');
+  const mainViewEl         = $('main-view');
+  const backToMainBtn      = $('back-to-main-btn');
 
-let lastJobData = null;
-let lastProposalText = null;   // raw text from server
-let proposalCollapsed = false;
-
-// ─── Proposal toggle ─────────────────────────────────────────────────────────
-proposalToggleEl.addEventListener('click', (e) => {
-  // Don't toggle if clicking the checkbox itself (it handles its own change)
-  if (e.target === proposalCheckbox) return;
-  proposalCheckbox.checked = !proposalCheckbox.checked;
-  proposalCheckbox.dispatchEvent(new Event('change'));
-});
-
-proposalCheckbox.addEventListener('change', () => {
-  if (proposalCheckbox.checked) {
-    proposalToggleEl.classList.add('active');
-  } else {
-    proposalToggleEl.classList.remove('active');
-  }
-});
-
-// Collapse / expand proposal panel
-proposalSectionEl.querySelector('.proposal-header').addEventListener('click', (e) => {
-  if (e.target === proposalCopyBtn || e.target.closest('#proposal-copy-btn')) return;
-  proposalCollapsed = !proposalCollapsed;
-  proposalBodyEl.style.display = proposalCollapsed ? 'none' : 'block';
-  proposalChevronEl.style.transform = proposalCollapsed ? 'rotate(-90deg)' : '';
-});
-
-// Copy proposal text
-let proposalCopyTimeout = null;
-proposalCopyBtn.addEventListener('click', async () => {
-  if (!lastProposalText) return;
-  try {
-    await navigator.clipboard.writeText(lastProposalText);
-    proposalCopyBtn.textContent = '✓ Copied';
-    proposalCopyBtn.classList.add('copied');
-    clearTimeout(proposalCopyTimeout);
-    proposalCopyTimeout = setTimeout(() => {
-      proposalCopyBtn.textContent = 'Copy';
-      proposalCopyBtn.classList.remove('copied');
-    }, 1800);
-  } catch {
-    setStatus('Failed to copy proposal.', 'error');
-  }
-});
-
-// ─── Load profiles from server into dropdown ──────────────────────────────────
-async function loadProfiles() {
-  try {
-    const res = await fetch(PROFILES_URL);
-    if (!res.ok) throw new Error('Failed to load profiles');
-    const data = await res.json();
-    const profiles = data.profiles || [];
-
-    profileSelectEl.innerHTML = '';
-    profiles.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.filename;
-      opt.textContent = p.name || p.filename;
-      profileSelectEl.appendChild(opt);
-    });
-
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved && profiles.some(p => p.filename === saved)) {
-      profileSelectEl.value = saved;
+  // ── Storage helpers ───────────────────────────────────────────────────────
+  function storageGet(key, callback) {
+    if (chrome?.storage?.local) {
+      chrome.storage.local.get(key, (data) => callback(data?.[key] ?? null));
+    } else {
+      try {
+        const val = localStorage.getItem(key);
+        callback(val ? JSON.parse(val) : null);
+      } catch {
+        callback(null);
+      }
     }
-  } catch (err) {
-    profileSelectEl.innerHTML = '<option>(server not running)</option>';
   }
-}
 
-profileSelectEl.addEventListener('change', () => {
-  localStorage.setItem(STORAGE_KEY, profileSelectEl.value);
-});
+  function storageSet(key, value, callback) {
+    if (chrome?.storage?.local) {
+      chrome.storage.local.set({ [key]: value }, () => {
+        if (callback) callback(value);
+      });
+    } else {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+        if (callback) callback(value);
+      } catch {
+        if (callback) callback(value);
+      }
+    }
+  }
 
-loadProfiles();
+  // ── History helpers ────────────────────────────────────────────────────────
+  function getHistory() {
+    return new Promise((resolve) => {
+      storageGet(HISTORY_KEY, (data) => {
+        resolve(Array.isArray(data) ? data : []);
+      });
+    });
+  }
 
-// ─── Load job data from content script ───────────────────────────────────────
-async function loadJobData() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const results = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: () => window.__upworkJobData,
-  });
-  return results[0]?.result || null;
-}
+  function saveToHistory(entry) {
+    getHistory().then((history) => {
+      // Deduplicate by job URL
+      history = history.filter((h) => h.jobUrl !== entry.jobUrl);
+      history.unshift(entry); // newest first
+      if (history.length > MAX_HISTORY) {
+        history = history.slice(0, MAX_HISTORY);
+      }
+      storageSet(HISTORY_KEY, history);
+    });
+  }
 
-function setStatus(html, cls) {
-  statusEl.className = 'status ' + cls;
-  statusEl.innerHTML = html;
-}
+  async function renderHistory() {
+    const history = await getHistory();
 
-// ─── Extract button ───────────────────────────────────────────────────────────
-extractBtn.addEventListener('click', async () => {
-  extractBtn.disabled = true;
-  extractBtn.textContent = 'Extracting...';
-  setStatus('<span class="spinner"></span>Extracting job data...', 'loading');
-
-  try {
-    lastJobData = await loadJobData();
-    if (!lastJobData) {
-      setStatus('No job data found.\n\nMake sure you are on an Upwork job details page.', 'error');
-      extractBtn.disabled = false;
-      extractBtn.textContent = 'Get Details';
-      copyBtn.disabled = true;
+    if (history.length === 0) {
+      historyListEl.innerHTML =
+        '<div style="text-align:center;color:#666;font-size:11px;padding:20px 0;">No analysis history yet.<br>Your analyzed jobs will appear here.</div>';
       return;
     }
+
+    historyListEl.innerHTML = history
+      .map((item, i) => {
+        const date = new Date(item.analyzedAt);
+        const timeAgo = getTimeAgo(date);
+        const verdictClass =
+          item.verdict === 'APPLY' ? 'apply' :
+          item.verdict === 'SKIP'  ? 'skip' : 'caution';
+        const score = item.matchScore ? item.matchScore.replace('/10', '') : '';
+        return `
+      <div class="history-item" data-index="${i}">
+        <div class="history-header">
+          <span class="verdict-badge ${verdictClass}">${item.verdict}</span>
+          ${score ? `<span class="history-score">${score}/10</span>` : ''}
+          <span class="history-time">${timeAgo}</span>
+        </div>
+        <div class="history-title">${escapeHtml(item.jobTitle || 'Untitled')}</div>
+        ${item.skills?.length ? `<div class="history-skills">${escapeHtml(item.skills.slice(0, 3).join(', '))}</div>` : ''}
+      </div>`;
+      })
+      .join('');
+
+    // Click to restore
+    historyListEl.querySelectorAll('.history-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.dataset.index);
+        restoreFromHistory(history[idx]);
+      });
+    });
+  }
+
+  function getTimeAgo(date) {
+    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+    if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+    return Math.floor(seconds / 86400) + 'd ago';
+  }
+
+  function restoreFromHistory(entry) {
+    lastJobData = entry.jobData || null;
+    lastAnalysisData = entry;
+    lastProposalText = entry.proposal || null;
 
     // Show JSON preview
     jsonViewEl.textContent = JSON.stringify(lastJobData, null, 2);
     jsonViewEl.classList.add('visible');
 
-    // Reset proposal state
-    hideProposal();
-
-    extractBtn.textContent = '✓ Extracted';
-    extractBtn.style.borderColor = '#a0d911';
-    extractBtn.style.color = '#a0d911';
-    copyBtn.disabled = false;
-    analyzeBtn.disabled = false;
-
-    const title = lastJobData.title || 'Unknown Job';
-    const skills = lastJobData.skills?.length
-      ? lastJobData.skills.slice(0, 3).join(', ') + (lastJobData.skills.length > 3 ? '...' : '')
-      : '';
-    setStatus(
-      `"${title}"\n${skills ? '\nSkills: ' + skills + '\n' : ''}Click "Analyze & Save" to run Claude and save to JSON.`,
-      'idle'
-    );
-
-  } catch (err) {
-    setStatus('Error: ' + err.message, 'error');
-    extractBtn.disabled = false;
-    extractBtn.textContent = 'Get Details';
-  }
-});
-
-// ─── Analyze button ───────────────────────────────────────────────────────────
-analyzeBtn.addEventListener('click', async () => {
-  if (!lastJobData) {
-    setStatus('Extract the job details first.', 'error');
-    return;
-  }
-
-  const selectedProfile = profileSelectEl.value;
-  const generateProposal = proposalCheckbox.checked;
-
-  analyzeBtn.disabled = true;
-  analyzeBtn.textContent = 'Analyzing...';
-  setStatus('<span class="spinner"></span>Analyzing with Claude...', 'loading');
-  hideProposal();
-
-  try {
-    let analyzeData;
-    let response = '';
-    let verdict = 'caution';
-    let verdictText = 'APPLY WITH CAUTION';
-    let score = '';
-
-    if (generateProposal) {
-      // Use combined /checklist endpoint for proposal generation
-      setStatus('<span class="spinner"></span>Analyzing & generating proposal...', 'loading');
-      const checklistRes = await fetch(CHECKLIST_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...lastJobData, profileFile: selectedProfile }),
-      });
-      analyzeData = await checklistRes.json();
-
-      if (!checklistRes.ok) {
-        throw new Error(analyzeData.error || 'Server error ' + checklistRes.status);
-      }
-
-      const fullResponse = analyzeData.response || '';
-      // Extract proposal BEFORE stripping for display
-      const proposalSection = fullResponse.match(/CUSTOMIZED PROPOSAL[\s\S]*$/i)?.[0] || '';
-
-      // Strip proposal section from status display to avoid duplication
-      response = fullResponse.replace(/CUSTOMIZED PROPOSAL[\s\S]*$/i, '').trim();
-      score = analyzeData.matchScore ? 'Match Score: ' + analyzeData.matchScore : '';
-
-      // Use precomputed verdict/score from server — do NOT re-parse from LLM response
-      const parsedVerdict = (analyzeData.verdict || 'APPLY WITH CAUTION').toUpperCase().replace(/\s+/g, ' ');
-
-      if (parsedVerdict === 'SKIP') {
-        verdict = 'skip';
-        verdictText = 'SKIP';
-        // Don't show proposal for SKIP even if checkbox was checked
-      } else if (parsedVerdict === 'APPLY') {
-        verdict = 'apply';
-        verdictText = 'APPLY';
-      } else {
-        verdictText = parsedVerdict;
-      }
-
-      // Show proposal if NOT SKIP
-      if (parsedVerdict !== 'SKIP' && proposalSection) {
-        showProposalFromResponse(proposalSection);
-      }
-
-    } else {
-      // Use standard /analyze endpoint (no proposal)
-      const analyzeRes = await fetch(ANALYZE_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...lastJobData, profileFile: selectedProfile }),
-      });
-
-      analyzeData = await analyzeRes.json();
-
-      if (!analyzeRes.ok) {
-        throw new Error(analyzeData.error || 'Server error ' + analyzeRes.status);
-      }
-
-      response = analyzeData.response || '';
-      // Strip proposal section from status display to avoid duplication
-      response = response.replace(/CUSTOMIZED PROPOSAL[\s\S]*$/i, '').trim();
-      score = analyzeData.matchScore ? 'Match Score: ' + analyzeData.matchScore : '';
-
-      // Use precomputed verdict from server — do NOT re-parse from LLM response
-      const parsedVerdict = (analyzeData.verdict || 'APPLY WITH CAUTION').toUpperCase().replace(/\s+/g, ' ');
-
-      if (parsedVerdict === 'SKIP') {
-        verdict = 'skip';
-        verdictText = 'SKIP';
-      } else if (parsedVerdict === 'APPLY') {
-        verdict = 'apply';
-        verdictText = 'APPLY';
-      } else {
-        verdictText = parsedVerdict;
-      }
-    }
-
-    // ── Render results ──
-    const greeting = analyzeData.userName && analyzeData.userName !== 'there'
-      ? 'Hi ' + analyzeData.userName + ', '
-      : '';
-
-    analyzeBtn.textContent = '✓ Saved';
-    analyzeBtn.style.background = '#a0d911';
-    analyzeBtn.disabled = true;
-    extractBtn.disabled = true;
-    resultPathEl.textContent = 'Saved to: ' + (analyzeData.dataPath || 'upwork-jobs.json');
+    // Restore verdict
+    const verdictClass =
+      entry.verdict === 'APPLY' ? 'apply' :
+      entry.verdict === 'SKIP'  ? 'skip' : 'caution';
 
     setStatus(
-      '<div class="verdict ' + verdict + '">' + greeting + verdictText + '</div>' +
-      (score ? '<div class="score">' + score + '</div>' : '') +
-      '<div class="response">' + response.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>',
+      '<div class="verdict ' + verdictClass + '">' + entry.verdict + '</div>' +
+      '<div class="score">Match Score: ' + (entry.matchScore || '') + '</div>' +
+      '<div class="response">' + escapeHtml(entry.response || '') + '</div>',
       'success'
     );
 
-  } catch (err) {
-    let msg = err.message;
-    if (msg.includes('fetch') && msg.includes('localhost')) {
-      msg = 'Server not running. Run npm run server first.';
-    }
-    setStatus('Error: ' + msg, 'error');
-    analyzeBtn.disabled = false;
-    analyzeBtn.textContent = 'Analyze & Save';
-  }
-});
-
-// ─── Copy JSON button ──────────────────────────────────────────────────────────
-copyBtn.addEventListener('click', async () => {
-  if (!lastJobData) return;
-  try {
-    const json = JSON.stringify(lastJobData, null, 2);
-    await navigator.clipboard.writeText(json);
-    copyBtn.textContent = '✓ Copied!';
-    copyBtn.classList.add('copied');
-    copyBtn.disabled = true;
-    setTimeout(() => {
-      copyBtn.textContent = 'Copy JSON';
-      copyBtn.classList.remove('copied');
-      copyBtn.disabled = false;
-    }, 1800);
-  } catch {
-    setStatus('Failed to copy to clipboard.', 'error');
-  }
-});
-
-// ─── Proposal display helpers ─────────────────────────────────────────────────
-function hideProposal() {
-  proposalSectionEl.classList.remove('visible');
-  proposalBodyEl.innerHTML = '';
-  lastProposalText = null;
-  proposalCollapsed = false;
-  proposalBodyEl.style.display = 'block';
-  if (proposalChevronEl) proposalChevronEl.style.transform = '';
-}
-
-function escapeHtml(str) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function renderProposalSection(text) {
-  // Split the raw proposal text into sections by the **HEADER** pattern
-  const sections = [];
-  const regex = /\*{2}([A-Z][A-Z\s/]+)\*{2}/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (lastIndex < match.index) {
-      // Text before this header — attach to previous section or as intro
-      const before = text.slice(lastIndex, match.index).trim();
-      if (before) sections.push({ type: 'prose', content: before });
-    }
-    const title = match[1].trim();
-    const start = match.index + match[0].length;
-    const nextMatch = regex.exec(text);
-    const end = nextMatch ? nextMatch.index : text.length;
-    const content = text.slice(start, end).trim();
-    sections.push({ type: title, content });
-    regex.lastIndex = nextMatch ? regex.lastIndex - (text.length - end) : end;
-    if (!nextMatch) break;
-  }
-
-  let html = '';
-
-  // Bid recommendation (before the move sections)
-  const bidIdx = sections.findIndex(s => s.type === 'BID RECOMMENDATION');
-  if (bidIdx >= 0) {
-    html += `<div class="bid-recommendation">
-      <div class="label">Bid Recommendation</div>
-      <div class="text">${escapeHtml(sections[bidIdx].content)}</div>
-    </div>`;
-  }
-
-  // Move sections
-  for (const section of sections) {
-    if (section.type === 'BID RECOMMENDATION') continue;
-    if (section.type === 'prose') continue;
-
-    // Normalize "MOVE 1", "MOVE 1 — CREDIBILITY LINE" etc.
-    const moveMatch = section.type.match(/^MOVE\s*(\d+)(?:\s*[—\-:]\s*(.+))?$/i);
-    const label = moveMatch
-      ? `Move ${moveMatch[1]}${moveMatch[2] ? ' — ' + moveMatch[2].trim() : ''}`
-      : section.type.replace(/MOVE\s*/i, 'Move ');
-
-    // Detect note/warning lines
-    const isNote = /^(Note|NOTE|Warning|WARNING|Stretch:)/i.test(section.content.split('\n')[0]);
-    if (isNote) {
-      html += `<div class="proposal-note">${escapeHtml(section.content)}</div>`;
+    // Restore proposal
+    if (lastProposalText && entry.verdict !== 'SKIP') {
+      showProposal(lastProposalText);
     } else {
-      html += `<div class="proposal-move">
-        <div class="proposal-move-title">${escapeHtml(label)}</div>
-        <div class="proposal-move-body">${escapeHtml(section.content).replace(/\n/g, '<br>')}</div>
+      hideProposal();
+    }
+
+    // Reset buttons
+    extractBtn.textContent = '✓ Restored';
+    extractBtn.style.borderColor = '#a0d911';
+    extractBtn.style.color = '#a0d911';
+    extractBtn.disabled = false;
+    if (copyBtn) copyBtn.disabled = false;
+    if (analyzeBtn) {
+      analyzeBtn.textContent = '✓ Done';
+      analyzeBtn.style.background = '#a0d911';
+      analyzeBtn.disabled = true;
+    }
+
+    // Go back to main view
+    showView('main');
+  }
+
+  function clearHistory() {
+    if (!confirm('Clear all analysis history?')) return;
+    storageSet(HISTORY_KEY, [], () => renderHistory());
+  }
+
+  // ── View navigation ────────────────────────────────────────────────────────
+  function showView(view) {
+    currentView = view;
+    if (view === 'history') {
+      mainViewEl.style.display = 'none';
+      historyPanelEl.style.display = 'block';
+      renderHistory();
+    } else {
+      mainViewEl.style.display = 'block';
+      historyPanelEl.style.display = 'none';
+    }
+  }
+
+  // ── Profile ───────────────────────────────────────────────────────────────
+  function loadProfile() {
+    storageGet(PROFILE_KEY, (data) => {
+      userProfile = data || '';
+      if (profileTextarea) profileTextarea.value = userProfile;
+    });
+  }
+
+  function saveProfile() {
+    userProfile = (profileTextarea?.value || '').trim();
+    storageSet(PROFILE_KEY, userProfile, () => {
+      if (profileSavedEl) {
+        profileSavedEl.textContent = '✓ Saved';
+        profileSavedEl.style.color = '#a0d911';
+        setTimeout(() => {
+          if (profileSavedEl) {
+            profileSavedEl.textContent = '';
+            profileSavedEl.style.color = '';
+          }
+        }, 2000);
+      }
+    });
+  }
+
+  // ── Event listeners ────────────────────────────────────────────────────────
+  profileToggleBtn?.addEventListener('click', () => {
+    profilePanelEl?.classList.toggle('hidden');
+  });
+  profileSaveBtn?.addEventListener('click', saveProfile);
+
+  historyToggleBtn?.addEventListener('click', () => showView('history'));
+  backToMainBtn?.addEventListener('click', () => showView('main'));
+  historyClearBtn?.addEventListener('click', clearHistory);
+
+  proposalToggleEl?.addEventListener('click', (e) => {
+    if (e.target === proposalCheckbox) return;
+    proposalCheckbox.checked = !proposalCheckbox.checked;
+    proposalCheckbox.dispatchEvent(new Event('change'));
+  });
+  proposalCheckbox?.addEventListener('change', () => {
+    proposalToggleEl?.classList.toggle('active', proposalCheckbox.checked);
+  });
+
+  proposalSectionEl?.querySelector('.proposal-header').addEventListener('click', (e) => {
+    if (e.target === proposalCopyBtn || e.target.closest('#proposal-copy-btn')) return;
+    proposalCollapsed = !proposalCollapsed;
+    if (proposalBodyEl) proposalBodyEl.style.display = proposalCollapsed ? 'none' : 'block';
+    if (proposalChevronEl) proposalChevronEl.style.transform = proposalCollapsed ? 'rotate(-90deg)' : '';
+  });
+
+  let copyTimeout = null;
+  proposalCopyBtn?.addEventListener('click', async () => {
+    if (!lastProposalText) return;
+    try {
+      await navigator.clipboard.writeText(lastProposalText);
+      proposalCopyBtn.textContent = '✓ Copied';
+      proposalCopyBtn.classList.add('copied');
+      clearTimeout(copyTimeout);
+      copyTimeout = setTimeout(() => {
+        proposalCopyBtn.textContent = 'Copy';
+        proposalCopyBtn.classList.remove('copied');
+      }, 1800);
+    } catch {
+      setStatus('Failed to copy proposal.', 'error');
+    }
+  });
+
+  // ── Load job data from content script ─────────────────────────────────────
+  async function loadJobData() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => window.__upworkJobData,
+    });
+    return results[0]?.result || null;
+  }
+
+  function setStatus(html, cls) {
+    if (!statusEl) return;
+    statusEl.className = 'status ' + cls;
+    statusEl.innerHTML = html;
+  }
+
+  // ── Extract button ────────────────────────────────────────────────────────
+  extractBtn?.addEventListener('click', async () => {
+    extractBtn.disabled = true;
+    extractBtn.textContent = 'Extracting...';
+    setStatus('<span class="spinner"></span>Extracting job data...', 'loading');
+
+    try {
+      lastJobData = await loadJobData();
+      if (!lastJobData) {
+        setStatus('No job data found.\n\nMake sure you are on an Upwork job details page.', 'error');
+        extractBtn.disabled = false;
+        extractBtn.textContent = 'Get Details';
+        if (copyBtn) copyBtn.disabled = true;
+        return;
+      }
+
+      jsonViewEl.textContent = JSON.stringify(lastJobData, null, 2);
+      jsonViewEl.classList.add('visible');
+      hideProposal();
+
+      // Reset analyze button
+      analyzeBtn.textContent = 'Analyze';
+      analyzeBtn.style.background = '';
+      analyzeBtn.disabled = false;
+      lastAnalysisData = null;
+
+      extractBtn.textContent = '✓ Extracted';
+      extractBtn.style.borderColor = '#a0d911';
+      extractBtn.style.color = '#a0d911';
+      if (copyBtn) copyBtn.disabled = false;
+
+      const title = lastJobData.title || 'Unknown Job';
+      const skills = lastJobData.skills?.length
+        ? lastJobData.skills.slice(0, 3).join(', ') +
+          (lastJobData.skills.length > 3 ? '...' : '')
+        : '';
+      setStatus(
+        '"' + title + '"\n' +
+        (skills ? '\nSkills: ' + skills + '\n' : '') +
+        'Click "Analyze" to get the analysis.',
+        'idle'
+      );
+    } catch (err) {
+      setStatus('Error: ' + err.message, 'error');
+      extractBtn.disabled = false;
+      extractBtn.textContent = 'Get Details';
+    }
+  });
+
+  // ── Analyze button ────────────────────────────────────────────────────────
+  analyzeBtn?.addEventListener('click', async () => {
+    if (!lastJobData) {
+      setStatus('Extract the job details first.', 'error');
+      return;
+    }
+
+    const generateProposal = proposalCheckbox?.checked || false;
+    analyzeBtn.disabled = true;
+    analyzeBtn.textContent = 'Analyzing...';
+    setStatus(
+      '<span class="spinner"></span>' +
+      (generateProposal ? 'Analyzing & generating proposal...' : 'Analyzing job...'),
+      'loading'
+    );
+    hideProposal();
+
+    try {
+      const endpoint = generateProposal ? CHECKLIST_URL : ANALYZE_URL;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          job: lastJobData,
+          profile: userProfile || null,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Server error ' + res.status);
+      }
+
+      const remaining = res.headers.get('X-RateLimit-Remaining');
+      const limitMsg = remaining && parseInt(remaining) <= 3
+        ? '\n⚠️ Rate limit low (' + remaining + ' left)'
+        : '';
+
+      const verdict = (data.verdict || 'APPLY WITH CAUTION')
+        .toUpperCase().replace(/\s+/g, ' ');
+
+      let proposalText = '';
+      if (generateProposal && data.proposal) {
+        proposalText = data.proposal
+          .replace(/\*{0,2}FLAG LINE\*{0,2}[\s\S]*/i, '')
+          .trim();
+      }
+
+      const verdictClass =
+        verdict === 'APPLY' ? 'apply' :
+        verdict === 'SKIP'  ? 'skip' : 'caution';
+
+      const greeting = data.userName && data.userName !== 'there'
+        ? 'Hi ' + data.userName + ', '
+        : '';
+
+      analyzeBtn.textContent = '✓ Done';
+      analyzeBtn.style.background = '#a0d911';
+      analyzeBtn.disabled = true;
+      if (extractBtn) extractBtn.disabled = true;
+
+      setStatus(
+        '<div class="verdict ' + verdictClass + '">' +
+        greeting + verdict +
+        '</div>' +
+        '<div class="score">Match Score: ' + (data.matchScore || '') + limitMsg + '</div>' +
+        '<div class="response">' +
+        escapeHtml(
+          (data.response || '')
+            .replace(/CUSTOMIZED PROPOSAL[\s\S]*$/i, '')
+            .trim()
+        ) +
+        '</div>',
+        'success'
+      );
+
+      if (proposalText && verdict !== 'SKIP') {
+        showProposal(proposalText);
+      }
+
+      // ── Save to history ─────────────────────────────────────────────────
+      lastAnalysisData = {
+        analyzedAt: new Date().toISOString(),
+        jobUrl:    lastJobData.url || '',
+        jobTitle:  lastJobData.title || 'Untitled',
+        skills:    lastJobData.skills || [],
+        verdict,
+        matchScore: data.matchScore || '',
+        verdictClass,
+        response:   (data.response || '').replace(/CUSTOMIZED PROPOSAL[\s\S]*$/i, '').trim(),
+        proposal:   proposalText || null,
+        jobData:    lastJobData,
+      };
+      saveToHistory(lastAnalysisData);
+
+    } catch (err) {
+      let msg = err.message;
+      if (msg.includes('fetch') || msg.includes('localhost') || msg.includes('CORS')) {
+        msg = 'Cannot reach the server. Make sure you\'re connected to the internet.';
+      }
+      setStatus('Error: ' + msg, 'error');
+      analyzeBtn.disabled = false;
+      analyzeBtn.textContent = 'Analyze';
+    }
+  });
+
+  // ── Copy JSON button ──────────────────────────────────────────────────────
+  copyBtn?.addEventListener('click', async () => {
+    if (!lastJobData) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(lastJobData, null, 2));
+      copyBtn.textContent = '✓ Copied!';
+      copyBtn.classList.add('copied');
+      copyBtn.disabled = true;
+      setTimeout(() => {
+        copyBtn.textContent = 'Copy JSON';
+        copyBtn.classList.remove('copied');
+        copyBtn.disabled = false;
+      }, 1800);
+    } catch {
+      setStatus('Failed to copy to clipboard.', 'error');
+    }
+  });
+
+  // ── Proposal helpers ──────────────────────────────────────────────────────
+  function hideProposal() {
+    proposalSectionEl?.classList.remove('visible');
+    if (proposalBodyEl) proposalBodyEl.innerHTML = '';
+    lastProposalText = null;
+    proposalCollapsed = false;
+    if (proposalBodyEl) proposalBodyEl.style.display = 'block';
+    if (proposalChevronEl) proposalChevronEl.style.transform = '';
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function renderProposalSection(text) {
+    const sections = [];
+    const regex = /\*{2}([A-Z][A-Z\s/]+)\*{2}/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      if (lastIndex < match.index) {
+        const before = text.slice(lastIndex, match.index).trim();
+        if (before) sections.push({ type: 'prose', content: before });
+      }
+      const title = match[1].trim();
+      const start = match.index + match[0].length;
+      const nextMatch = regex.exec(text);
+      const end = nextMatch ? nextMatch.index : text.length;
+      const content = text.slice(start, end).trim();
+      sections.push({ type: title, content });
+      regex.lastIndex = nextMatch ? regex.lastIndex - (text.length - end) : end;
+      if (!nextMatch) break;
+    }
+
+    let html = '';
+    const bidIdx = sections.findIndex((s) => s.type === 'BID RECOMMENDATION');
+    if (bidIdx >= 0) {
+      html += `<div class="bid-recommendation">
+        <div class="label">Bid Recommendation</div>
+        <div class="text">${escapeHtml(sections[bidIdx].content)}</div>
       </div>`;
     }
+
+    for (const section of sections) {
+      if (section.type === 'BID RECOMMENDATION' || section.type === 'prose') continue;
+      const moveMatch = section.type.match(/^MOVE\s*(\d+)(?:\s*[—\-:]\s*(.+))?$/i);
+      const label = moveMatch
+        ? 'Move ' + moveMatch[1] + (moveMatch[2] ? ' — ' + moveMatch[2].trim() : '')
+        : section.type.replace(/MOVE\s*/i, 'Move ');
+      const isNote = /^(Note|NOTE|Warning|WARNING|Stretch:)/i.test(
+        section.content.split('\n')[0]
+      );
+      if (isNote) {
+        html += `<div class="proposal-note">${escapeHtml(section.content)}</div>`;
+      } else {
+        html += `<div class="proposal-move">
+          <div class="proposal-move-title">${escapeHtml(label)}</div>
+          <div class="proposal-move-body">${escapeHtml(section.content).replace(/\n/g, '<br>')}</div>
+        </div>`;
+      }
+    }
+
+    if (sections.length === 0) {
+      html = `<div class="proposal-move"><div class="proposal-move-body">${escapeHtml(text)}</div></div>`;
+    }
+    return html;
   }
 
-  // If no sections parsed, show raw text
-  if (sections.length === 0) {
-    html = `<div class="proposal-move"><div class="proposal-move-body">${escapeHtml(text)}</div></div>`;
+  function showProposal(proposalText) {
+    lastProposalText = proposalText;
+    if (proposalBodyEl) proposalBodyEl.innerHTML = renderProposalSection(proposalText);
+    proposalSectionEl?.classList.add('visible');
+    proposalCollapsed = false;
+    if (proposalBodyEl) proposalBodyEl.style.display = 'block';
+    if (proposalChevronEl) proposalChevronEl.style.transform = '';
   }
 
-  return html;
-}
-
-function showProposal(result) {
-  const proposalText = result.proposalText || '';
-  lastProposalText = proposalText;
-
-  // Inject bid recommendation + parsed moves
-  proposalBodyEl.innerHTML = renderProposalSection(proposalText);
-
-  proposalSectionEl.classList.add('visible');
-  proposalCollapsed = false;
-  proposalBodyEl.style.display = 'block';
-  if (proposalChevronEl) proposalChevronEl.style.transform = '';
-}
-
-function showProposalFromResponse(proposalSection) {
-  // proposalSection is already extracted - just clean it up
-  const proposalText = proposalSection
-    .replace(/CUSTOMIZED PROPOSAL[\s]*/i, '')
-    .replace(/\*{0,2}FLAG LINE\*{0,2}[\s\S]*/i, '')
-    .trim();
-
-  if (!proposalText) return;
-
-  lastProposalText = proposalText;
-  proposalBodyEl.innerHTML = renderProposalSection(proposalText);
-
-  proposalSectionEl.classList.add('visible');
-  proposalCollapsed = false;
-  proposalBodyEl.style.display = 'block';
-  if (proposalChevronEl) proposalChevronEl.style.transform = '';
-}
+  // ── Init ───────────────────────────────────────────────────────────────────
+  loadProfile();
+})();
