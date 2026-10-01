@@ -1,6 +1,6 @@
 (function () {
   // ── Configuration ─────────────────────────────────────────────────────────
-  const API_BASE     = 'http://localhost:3000'; // Update after Vercel deploy
+  const API_BASE     = 'https://upwork-analyzer-server-api.siddiqqulhakim.com';
   const ANALYZE_URL  = API_BASE + '/api/analyze';
   const CHECKLIST_URL = API_BASE + '/api/checklist';
 
@@ -41,6 +41,7 @@
   const historyClearBtn    = $('history-clear-btn');
   const mainViewEl         = $('main-view');
   const backToMainBtn      = $('back-to-main-btn');
+  const apiStatusLight     = $('api-status-light');
 
   // ── Storage helpers ───────────────────────────────────────────────────────
   function storageGet(key, callback) {
@@ -539,5 +540,29 @@
   }
 
   // ── Init ───────────────────────────────────────────────────────────────────
+  function setApiStatusLight(ok) {
+    if (!apiStatusLight) return;
+    if (ok) {
+      apiStatusLight.style.background = '#a0d911';
+      apiStatusLight.title = 'API: Online';
+    } else {
+      apiStatusLight.style.background = '#ff6b6b';
+      apiStatusLight.title = 'API: Offline — check your connection';
+    }
+  }
+
+  async function checkApiHealth() {
+    setApiStatusLight(null); // neutral/pending
+    try {
+      const res = await fetch(API_BASE + '/api/health', {
+        signal: AbortSignal.timeout(5000),
+      });
+      setApiStatusLight(res.ok);
+    } catch {
+      setApiStatusLight(false);
+    }
+  }
+
   loadProfile();
+  checkApiHealth();
 })();
