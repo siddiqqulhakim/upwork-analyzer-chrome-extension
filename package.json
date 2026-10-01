@@ -1,9 +1,0 @@
-{
-  "name": "upwork-chrome-extension",
-  "version": "1.0.0",
-  "description": "Chrome extension that extracts and analyzes Upwork jobs with AI-powered proposals",
-  "private": true,
-  "scripts": {
-    "dev": "npm run dev --prefix api-server"
-  }
-}
