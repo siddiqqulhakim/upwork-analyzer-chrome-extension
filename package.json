@@ -1,0 +1,19 @@
+{
+  "name": "upwork-chrome-extension",
+  "version": "1.0.0",
+  "description": "Chrome extension + server to analyze Upwork jobs with Claude",
+  "main": "server/index.js",
+  "scripts": {
+    "server": "node server/index.js",
+    "icons": "node scripts/generate-icons.js",
+    "start": "npm run icons && npm run server",
+    "test": "echo \"Run 'npm run server' then load the extension in Chrome\" && exit 0"
+  },
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.129.0"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.1"
+  }
+}
