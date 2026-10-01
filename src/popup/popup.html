@@ -451,11 +451,17 @@
     <div class="profile-panel-title">Your Profile</div>
     <textarea
       id="profile-textarea"
-      placeholder="Paste your profile text here for personalized analysis..."
+      placeholder="Use the required format:
+
+- Name: Your full name
+- Role: Your job title
+- Target Hourly Rate: Your rate range (e.g. $15-30/hr)
+- Executive Summary: 1-2 sentence overview
+- Technical Skills: List your skills"
     ></textarea>
     <small>
-      Paste your Upwork profile or a summary of your skills, rate, and experience.
-      This helps tailor the analysis and proposal to you.
+      Must include: Name, Role, Target Hourly Rate, Executive Summary, and Technical Skills.
+      <a href="https://github.com/siddiqqulhakim/upwork-analyzer-chrome-extension/blob/master/example-profile.md" target="_blank" style="color:#a0d911;text-decoration:underline;">See example profile</a> — the Analyze button is blocked until a valid profile is saved.
     </small>
     <div class="profile-actions">
       <button id="profile-save-btn">Save Profile</button>
@@ -519,6 +525,10 @@
       </div>
     </div>
     <div id="history-list"></div>
+  </div>
+
+  <div style="text-align:center;font-size:10px;color:#444;margin-top:8px;">
+    By <a href="mailto:siddiqqulhakim@gmail.com" style="color:#555;text-decoration:none;">Muhammad Ilham Siddiqqulhakim</a>
   </div>
 
   <script src="popup.js"></script>

@@ -334,10 +334,46 @@
     }
   });
 
-  // ── Analyze button ────────────────────────────────────────────────────────
+  // ── Profile validation ────────────────────────────────────────────────────
+  function validateProfile(text) {
+    const errors = [];
+
+    function has(pat) { return pat.test(text); }
+
+    const nameOk   = /\*\*?Name\*\*?\s*[:;\-]/.test(text);
+    const roleOk   = /\*\*?Role\*\*?\s*[:;\-]/.test(text);
+    const rateOk   = /\*\*?(?:Target\s+)?Hourly\s+Rate\*\*?\s*[:;\-]/.test(text);
+    const sumOk    = /(?:^|\n)\s*#{1,3}\s*(?:\*{2})?Executive\s+Summary(?:\*{2})?/.test(text);
+    const skillOk  = /(?:^|\n)\s*#{1,3}\s*(?:\*{2})?(?:Full\s+)?Technical\s+Skill(?:\*{2})?(?:\s|$|\n)/.test(text);
+
+    if (!text || !text.trim()) {
+      return { valid: false, error: 'Profile is required. Click "Edit Profile" to add yours.' };
+    }
+    if (!nameOk)  errors.push('Name');
+    if (!roleOk)  errors.push('Role');
+    if (!rateOk)  errors.push('Target Hourly Rate');
+    if (!sumOk)   errors.push('Executive Summary');
+    if (!skillOk) errors.push('Technical Skills');
+
+    if (errors.length) {
+      return {
+        valid: false,
+        error: 'Profile is incomplete. Missing: ' + errors.join(', ') + '.\n\nClick "Edit Profile" and use the required format.',
+      };
+    }
+    return { valid: true };
+  }
   analyzeBtn?.addEventListener('click', async () => {
     if (!lastJobData) {
       setStatus('Extract the job details first.', 'error');
+      return;
+    }
+
+    const profileCheck = validateProfile(profileTextarea?.value || userProfile);
+    if (!profileCheck.valid) {
+      setStatus(profileCheck.error, 'error');
+      profilePanelEl?.classList.add('visible');
+      profileTextarea?.focus();
       return;
     }
 
@@ -358,7 +394,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           job: lastJobData,
-          profile: userProfile || null,
+          profile: profileTextarea?.value || userProfile || null,
         }),
       });
 
