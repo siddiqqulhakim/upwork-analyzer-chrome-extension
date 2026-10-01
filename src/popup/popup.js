@@ -42,6 +42,9 @@
   const mainViewEl         = $('main-view');
   const backToMainBtn      = $('back-to-main-btn');
   const apiStatusLight     = $('api-status-light');
+  const tutorialOverlay    = $('tutorial-overlay');
+  const tutorialBtn        = $('tutorial-btn');
+  const tutorialCloseBtn   = $('tutorial-close-btn');
 
   // ── Storage helpers ───────────────────────────────────────────────────────
   function storageGet(key, callback) {
@@ -236,6 +239,23 @@
   backToMainBtn?.addEventListener('click', () => showView('main'));
   historyClearBtn?.addEventListener('click', clearHistory);
 
+  // ── Tutorial modal ──────────────────────────────────────────────────────
+  function openTutorial() {
+    tutorialOverlay?.classList.add('open');
+  }
+  function closeTutorial() {
+    tutorialOverlay?.classList.remove('open');
+  }
+
+  tutorialBtn?.addEventListener('click', openTutorial);
+  tutorialCloseBtn?.addEventListener('click', closeTutorial);
+  tutorialOverlay?.addEventListener('click', (e) => {
+    if (e.target === tutorialOverlay) closeTutorial();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeTutorial();
+  });
+
   proposalToggleEl?.addEventListener('click', (e) => {
     if (e.target === proposalCheckbox) return;
     proposalCheckbox.checked = !proposalCheckbox.checked;
@@ -408,8 +428,11 @@
         ? '\n⚠️ Rate limit low (' + remaining + ' left)'
         : '';
 
-      const verdict = (data.verdict || 'APPLY WITH CAUTION')
-        .toUpperCase().replace(/\s+/g, ' ');
+      // Extract LLM's own verdict/score from the response text so header and body always agree
+      const llmParsed = extractLlamaVerdict(data.response || '');
+      const verdict = llmParsed.verdict
+        || (data.verdict || 'APPLY WITH CAUTION').toUpperCase().replace(/\s+/g, ' ');
+      const matchScore = llmParsed.matchScore || data.matchScore || '';
 
       let proposalText = '';
       if (generateProposal && data.proposal) {
@@ -435,7 +458,7 @@
         '<div class="verdict ' + verdictClass + '">' +
         greeting + verdict +
         '</div>' +
-        '<div class="score">Match Score: ' + (data.matchScore || '') + limitMsg + '</div>' +
+        '<div class="score">Match Score: ' + matchScore + limitMsg + '</div>' +
         '<div class="response">' +
         escapeHtml(
           (data.response || '')
@@ -457,7 +480,7 @@
         jobTitle:  lastJobData.title || 'Untitled',
         skills:    lastJobData.skills || [],
         verdict,
-        matchScore: data.matchScore || '',
+        matchScore,
         verdictClass,
         response:   (data.response || '').replace(/CUSTOMIZED PROPOSAL[\s\S]*$/i, '').trim(),
         proposal:   proposalText || null,
@@ -509,6 +532,34 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
+  }
+
+  /**
+   * Extract the LLM's own VERDICT and MATCH SCORE from the response text.
+   * This ensures the header and body always agree, even if the LLM's
+   * assessment differs from the server-side deterministic scorer.
+   */
+  function extractLlamaVerdict(response) {
+    let verdict = null;
+    let matchScore = null;
+
+    // Greedy match: captures full verdict including multi-word (e.g. "APPLY WITH CAUTION")
+    const vMatch = response.match(
+      /\*{0,2}VERDICT\*{0,2}\s*[:\-]?\s*[\*#]*\s*([A-Z][A-Z\s]+?)\s*[\*#\n]/i
+    );
+    if (vMatch) {
+      const raw = vMatch[1].trim().toUpperCase().replace(/\s+/g, ' ');
+      if (/^SKIP$/.test(raw)) verdict = 'SKIP';
+      else if (/^APPLY$/.test(raw)) verdict = 'APPLY';
+      else if (/APPLY WITH CAUTION/.test(raw)) verdict = 'APPLY WITH CAUTION';
+    }
+
+    const sMatch = response.match(
+      /\*{0,2}MATCH SCORE\*{0,2}\s*[:\-]?\s*[\*#]*\s*([\d.]+)\s*\/\s*10/i
+    );
+    if (sMatch) matchScore = sMatch[1].trim() + '/10';
+
+    return { verdict, matchScore };
   }
 
   function renderProposalSection(text) {

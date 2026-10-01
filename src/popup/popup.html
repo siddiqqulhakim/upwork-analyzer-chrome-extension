@@ -40,6 +40,179 @@
     }
     .header-btn:hover { border-color: #a0d911; color: #a0d911; }
 
+    /* ── Tutorial modal ─────────────────────────────────────── */
+    #tutorial-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 9999;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 14px;
+    }
+    #tutorial-overlay.open { display: flex; }
+
+    #tutorial-modal {
+      background: #1a1a1a;
+      border: 1px solid #3a3a3a;
+      border-radius: 10px;
+      width: 440px;
+      max-height: calc(100vh - 28px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    }
+
+    .tutorial-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid #2a2a2a;
+      flex-shrink: 0;
+    }
+    .tutorial-header h2 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .tutorial-header h2 svg { color: #a0d911; }
+
+    #tutorial-close-btn {
+      background: #2a2a2a;
+      border: 1px solid #444;
+      color: #888;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    #tutorial-close-btn:hover { border-color: #a0d911; color: #a0d911; }
+
+    .tutorial-body {
+      overflow-y: auto;
+      padding: 14px 16px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .tutorial-section { }
+    .tutorial-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #a0d911;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tutorial-section-title svg { flex-shrink: 0; }
+    .tutorial-section p,
+    .tutorial-section li {
+      font-size: 11px;
+      color: #bbb;
+      line-height: 1.65;
+    }
+    .tutorial-section ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .tutorial-section ul li {
+      padding-left: 14px;
+      position: relative;
+    }
+    .tutorial-section ul li::before {
+      content: '›';
+      position: absolute;
+      left: 2px;
+      color: #a0d911;
+      font-weight: 700;
+    }
+
+    .tutorial-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .tutorial-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .tutorial-step-num {
+      background: #a0d911;
+      color: #000;
+      font-size: 9px;
+      font-weight: 800;
+      border-radius: 50%;
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .tutorial-step-text { font-size: 11px; color: #bbb; line-height: 1.5; }
+    .tutorial-step-text strong { color: #e0e0e0; }
+
+    .tutorial-divider {
+      border: none;
+      border-top: 1px solid #2a2a2a;
+    }
+
+    .tutorial-dos-donts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .tutorial-dos, .tutorial-donts {
+      background: #222;
+      border-radius: 7px;
+      padding: 10px;
+    }
+    .tutorial-dos { border: 1px solid #2a4a1a; }
+    .tutorial-donts { border: 1px solid #4a1a1a; }
+    .tutorial-dos-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .tutorial-dos .tutorial-dos-title { color: #a0d911; }
+    .tutorial-donts .tutorial-dos-title { color: #ff6b6b; }
+    .tutorial-dos ul, .tutorial-donts ul { gap: 4px; }
+    .tutorial-dos ul li::before { color: #a0d911; }
+    .tutorial-donts ul li::before { color: #ff6b6b; }
+
+    .tutorial-disclaimer {
+      background: #1a2a0a;
+      border: 1px solid #3a5a10;
+      border-radius: 7px;
+      padding: 10px 12px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .tutorial-disclaimer svg { color: #a0d911; flex-shrink: 0; margin-top: 1px; }
+    .tutorial-disclaimer p { font-size: 11px; color: #9ab844; line-height: 1.6; margin: 0; }
+    .tutorial-disclaimer strong { color: #a0d911; }
+
     /* ── Profile panel ─────────────────────────────────────── */
     #profile-panel {
       margin-bottom: 10px;
@@ -443,6 +616,7 @@
         transition: background 0.3s;"></span>
       <button id="history-toggle-btn" class="header-btn">History</button>
       <button id="profile-toggle-btn" class="header-btn">Edit Profile</button>
+      <button id="tutorial-btn" class="header-btn">Tutorial</button>
     </div>
   </div>
 
@@ -525,6 +699,124 @@
       </div>
     </div>
     <div id="history-list"></div>
+  </div>
+
+  <!-- Tutorial modal -->
+  <div id="tutorial-overlay" role="dialog" aria-modal="true" aria-label="Tutorial">
+    <div id="tutorial-modal">
+      <div class="tutorial-header">
+        <h2>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          How to Use This Extension
+        </h2>
+        <button id="tutorial-close-btn">Close</button>
+      </div>
+      <div class="tutorial-body">
+
+        <!-- How to use -->
+        <div class="tutorial-section">
+          <div class="tutorial-section-title">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+            Quick Start
+          </div>
+          <div class="tutorial-steps">
+            <div class="tutorial-step">
+              <span class="tutorial-step-num">1</span>
+              <span class="tutorial-step-text"><strong>Set up your profile</strong> — click <strong>Edit Profile</strong>, fill in your details using the required format (Name, Role, Target Hourly Rate, Executive Summary, Technical Skills), then click <strong>Save Profile</strong>.</span>
+            </div>
+            <div class="tutorial-step">
+              <span class="tutorial-step-num">2</span>
+              <span class="tutorial-step-text"><strong>Go to an Upwork job page</strong> — navigate to any job posting on upwork.com.</span>
+            </div>
+            <div class="tutorial-step">
+              <span class="tutorial-step-num">3</span>
+              <span class="tutorial-step-text">Click the extension icon in Chrome's toolbar to open the popup, then click <strong>Get Details</strong> to extract the job information.</span>
+            </div>
+            <div class="tutorial-step">
+              <span class="tutorial-step-num">4</span>
+              <span class="tutorial-step-text">Click <strong>Analyze</strong> to get a verdict (Apply / Skip / Apply with Caution), match score, and AI-powered analysis.</span>
+            </div>
+            <div class="tutorial-step">
+              <span class="tutorial-step-num">5</span>
+              <span class="tutorial-step-text">Toggle <strong>Write Proposal + Bid Recommendation</strong> to also generate a customized cover letter with bid advice.</span>
+            </div>
+          </div>
+        </div>
+
+        <hr class="tutorial-divider">
+
+        <!-- Features -->
+        <div class="tutorial-section">
+          <div class="tutorial-section-title">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            Features
+          </div>
+          <ul>
+            <li><strong>Job Extraction</strong> — automatically grabs title, budget, duration, skills, description, and client info from the Upwork page you are viewing.</li>
+            <li><strong>AI Job Analysis</strong> — verdict, match score (1–10), and detailed breakdown of pros, cons, and red flags.</li>
+            <li><strong>Proposal Writer</strong> — generates a structured 5-move cover letter with bid recommendation. Toggle it on before analyzing.</li>
+            <li><strong>Profile Matching</strong> — compares your skills and rate against the job requirements for a personalized score.</li>
+            <li><strong>Analysis History</strong> — past jobs are saved locally so you can revisit previous verdicts anytime.</li>
+            <li><strong>JSON Export</strong> — copy raw job data to clipboard for your own records or tools.</li>
+          </ul>
+        </div>
+
+        <hr class="tutorial-divider">
+
+        <!-- Dos and Donts -->
+        <div class="tutorial-section">
+          <div class="tutorial-section-title">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Do's &amp; Don'ts
+          </div>
+          <div class="tutorial-dos-donts">
+            <div class="tutorial-dos">
+              <div class="tutorial-dos-title">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                Do
+              </div>
+              <ul>
+                <li>Fill in your profile completely before analyzing</li>
+                <li>Analyze jobs before submitting a proposal</li>
+                <li>Use proposal output as a draft base — personalize it</li>
+                <li>Check the History panel to revisit past jobs</li>
+              </ul>
+            </div>
+            <div class="tutorial-donts">
+              <div class="tutorial-dos-title">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                Don't
+              </div>
+              <ul>
+                <li>Submit the generated proposal without customizing it</li>
+                <li>Analyze a job without setting up your profile first</li>
+                <li>Rely solely on the AI verdict — always do your own research</li>
+                <li>Share your API key or server credentials</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <hr class="tutorial-divider">
+
+        <!-- Disclaimer -->
+        <div class="tutorial-disclaimer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          <p>
+            <strong>Your data stays private.</strong> This extension does <strong>not</strong> store or transmit your data to any server.
+            Job data and your profile are sent directly to the LLM/AI provider for analysis only — the AI processes it and returns the result.
+            No browsing history, credentials, or personal information is collected or retained.
+          </p>
+        </div>
+
+      </div>
+    </div>
   </div>
 
   <div style="text-align:center;font-size:10px;color:#444;margin-top:8px;">
